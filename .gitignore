@@ -1,0 +1,18 @@
+# Build artifacts
+wifi-control
+*.exe
+
+# Configuration with AP credentials
+config.yaml
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
+
+# Saved Wi-Fi passwords and the key that encrypts them
+secrets.json
+secret.key
+.secrets-*

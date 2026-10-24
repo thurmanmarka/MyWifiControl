@@ -1,0 +1,29 @@
+[Unit]
+Description=MyWifiControl - Cambium AP settings over SSH
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=myhomeservices
+Group=myhomeservices
+WorkingDirectory=/home/myhomeservices/wifi-control
+ExecStart=/home/myhomeservices/wifi-control/wifi-control
+Restart=on-failure
+RestartSec=5s
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+# secrets.json / secret.key (saved Wi-Fi passwords) live here
+ReadWritePaths=/home/myhomeservices/wifi-control
+
+# Logging (audit trail of every change lives here)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=wifi-control
+
+[Install]
+WantedBy=multi-user.target

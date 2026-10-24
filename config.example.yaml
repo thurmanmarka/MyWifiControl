@@ -1,0 +1,71 @@
+# MyWifiControl configuration
+# Copy to config.yaml and fill in your AP's SSH details. config.yaml holds
+# credentials, so it is git-ignored; keep it chmod 600.
+
+server:
+  port: 8084
+  # Keep this on 127.0.0.1: the service trusts the hub's X-Hub-Role header,
+  # so it must only be reachable through MyHomeServicesHub.
+  bind: 127.0.0.1
+  # true = requests that bypass the hub are treated as admin (local testing only)
+  allow_direct: false
+  # Wi-Fi passwords set through the app are saved here, AES-256-GCM encrypted
+  # with secret.key (generated on first run). Back both up together; lose the
+  # key and the saved passwords are gone.
+  secrets_file: secrets.json
+  secret_key_file: secret.key
+
+access_points:
+  - id: house
+    name: House AP
+    host: 169.254.1.1
+    port: 22
+    username: admin
+    password: "change-me"
+    # key_file: /home/myhomeservices/.ssh/cambium_ed25519   # optional, used before password
+    # Pin the host key after first connect; the fingerprint is printed in the log:
+    #   sudo journalctl -u wifi-control | grep "host key"
+    host_key_fingerprint: ""
+    profile: cnpilot
+    # WLAN profile that carries your SSID ("wireless wlan 1" in show config)
+    wlan: 1
+    # Which radio index serves which band ("wireless radio 1" / "wireless radio 2")
+    radios:
+      "2.4": 1
+      "5": 2
+    timeout_seconds: 10
+
+# Optional: override or add CLI profiles. Every command is a Go text/template line;
+# lines that render empty are skipped. Fields: .WLAN .SSID .Passphrase .Band
+# .Radio .Channel .Width .SNMPOn .SNMPOff .ReadCommunity .WriteCommunity.
+# A profile defined here replaces the built-in one with the same name entirely,
+# so copy every field.
+#
+# The built-in "cnpilot" profile below is verified on an XV2-2 (firmware 7.2-r1).
+# {{q .X}} quotes a value only if it contains spaces, the way the AP prints it.
+#
+# profiles:
+#   cnpilot:
+#     description: Cambium cnPilot / XV-series CLI
+#     prompt: '^[^\s].{0,80}[#>$]\s*$'
+#     pager: '(?i)-+\s*more\s*-+'
+#     error_pattern: '(?i)(%\s*error|%\s*invalid|error processing|error parsing|unknown command|incomplete command|syntax error)'
+#     status: ["show config"]
+#     enter_config: []          # login already lands in (config)#
+#     wlan:
+#       - "wireless wlan {{.WLAN}}"
+#       - "{{if .SSID}}ssid {{q .SSID}}{{end}}"
+#       - "{{if .Passphrase}}passphrase {{q .Passphrase}}{{end}}"
+#       - "{{if .Band}}band {{.Band}}{{end}}"
+#       - "exit"
+#     radio:
+#       - "wireless radio {{.Radio}}"
+#       - "{{if .Channel}}channel {{.Channel}}{{end}}"
+#       - "{{if .Width}}channel-width {{.Width}}{{end}}"
+#       - "exit"
+#     snmp:
+#       - "{{if .SNMPOn}}snmp-server{{end}}"
+#       - "{{if .SNMPOff}}no snmp-server{{end}}"
+#       - "{{if .ReadCommunity}}snmp-server read-community {{.ReadCommunity}}{{end}}"
+#       - "{{if .WriteCommunity}}snmp-server write-community {{.WriteCommunity}}{{end}}"
+#     commit: ["apply", "save"]  # apply = take effect now, save = survive reboot

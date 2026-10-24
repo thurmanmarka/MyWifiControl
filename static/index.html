@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wi-Fi Control — My Home Services Hub</title>
+    <style>
+        :root {
+            --page-bg: #f5f7fb;
+            --panel-bg: #ffffff;
+            --panel-border: #d2d7e0;
+            --accent: #2563eb;
+            --accent-soft: #e0edff;
+            --text-main: #1f2933;
+            --text-muted: #6b7280;
+            --ok: #15803d;
+            --bad: #b91c1c;
+            --code-bg: #0f172a;
+            --code-text: #e2e8f0;
+            --gradient-start: #d9e6ff;
+            --gradient-mid1: #e7edf4;
+            --gradient-mid2: #dde7f4;
+            --gradient-end: #d3e0f0;
+        }
+
+        [data-theme="dark"] {
+            --page-bg: #1e293b;
+            --panel-bg: #334155;
+            --panel-border: #475569;
+            --accent: #3b82f6;
+            --accent-soft: #1e3a8a;
+            --text-main: #f1f5f9;
+            --text-muted: #94a3b8;
+            --ok: #4ade80;
+            --bad: #f87171;
+            --code-bg: #020617;
+            --gradient-start: #1e293b;
+            --gradient-mid1: #0f172a;
+            --gradient-mid2: #1e293b;
+            --gradient-end: #334155;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: radial-gradient(circle at top left, var(--gradient-start), var(--gradient-mid1) 40%, var(--gradient-mid2) 70%, var(--gradient-end) 100%);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            padding: 32px 16px;
+        }
+
+        .page-shell {
+            max-width: 1000px;
+            width: 100%;
+            background: var(--page-bg);
+            border-radius: 12px;
+            box-shadow: 0 18px 45px rgba(15, 23, 42, 0.16), 0 0 0 1px rgba(15, 23, 42, 0.03);
+            padding: 28px;
+        }
+
+        .top-bar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 24px; }
+        .top-bar-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        h1 { font-size: 1.6rem; }
+
+        .panel {
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .panel-title { font-weight: 600; font-size: 1.05rem; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .muted { color: var(--text-muted); font-size: 0.9rem; }
+
+        .btn, .back-btn, .theme-toggle, select, input, textarea {
+            font: inherit;
+            border-radius: 8px;
+            border: 1px solid var(--panel-border);
+            background: var(--panel-bg);
+            color: var(--text-main);
+            padding: 8px 12px;
+        }
+        .btn { cursor: pointer; background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 500; }
+        .btn.secondary { background: var(--accent-soft); color: var(--text-main); border-color: var(--panel-border); }
+        .btn:disabled { opacity: 0.55; cursor: wait; }
+        .back-btn { text-decoration: none; }
+        .theme-toggle { cursor: pointer; }
+
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+        label { display: flex; flex-direction: column; gap: 6px; font-size: 0.9rem; color: var(--text-muted); }
+        label input, label select { color: var(--text-main); width: 100%; }
+
+        .radio-card { border: 1px solid var(--panel-border); border-radius: 8px; padding: 14px; }
+        .radio-card h3 { font-size: 0.95rem; margin-bottom: 10px; }
+        .radio-card .grid { grid-template-columns: 1fr 1fr; }
+
+        /* One row per WLAN (SSID / band / password), then one row for the radios. */
+        .current { display: flex; flex-direction: column; gap: 12px; }
+        .current-row { display: grid; gap: 12px; }
+        .current-row.wlan { grid-template-columns: 2fr 1fr 2fr; }
+        .current-row.radios { grid-template-columns: repeat(4, 1fr); }
+        .current-row.snmp { grid-template-columns: 1fr 2fr 2fr; }
+        @media (max-width: 700px) {
+            .current-row.wlan, .current-row.radios, .current-row.snmp { grid-template-columns: 1fr 1fr; }
+        }
+        /* The SNMP section inside the radio-card grid spans the full width. */
+        .radio-card > .grid { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+        .stat { background: var(--accent-soft); border-radius: 8px; padding: 12px; }
+        .stat .k { font-size: 0.8rem; color: var(--text-muted); }
+        .stat .v { font-size: 1.1rem; font-weight: 600; margin-top: 4px; word-break: break-all; }
+        .stat .v.secret { font-family: ui-monospace, Consolas, monospace; font-size: 0.95rem; }
+        .stat .note { font-size: 0.8rem; color: var(--text-muted); margin-top: 6px; }
+        .stat .note.warn { color: var(--bad); }
+        .stat .btn { padding: 4px 10px; font-size: 0.8rem; margin-top: 8px; }
+
+        .actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+        pre {
+            background: var(--code-bg);
+            color: var(--code-text);
+            border-radius: 8px;
+            padding: 12px;
+            overflow-x: auto;
+            font-size: 0.82rem;
+            max-height: 420px;
+            margin-top: 12px;
+            white-space: pre-wrap;
+        }
+        textarea { width: 100%; min-height: 90px; font-family: ui-monospace, Consolas, monospace; font-size: 0.85rem; }
+        details summary { cursor: pointer; color: var(--text-muted); margin-top: 12px; }
+        .msg { margin-top: 12px; font-weight: 500; }
+        .msg.ok { color: var(--ok); }
+        .msg.bad { color: var(--bad); }
+        .hidden { display: none !important; }
+
+        .title-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+        /* "Change settings" pops out over the dashboard. */
+        dialog#changeDialog {
+            width: min(900px, calc(100vw - 32px));
+            max-height: calc(100vh - 48px);
+            overflow-y: auto;
+            margin: auto;
+            color: var(--text-main);
+            box-shadow: 0 24px 60px rgba(15, 23, 42, 0.35);
+        }
+        dialog#changeDialog::backdrop { background: rgba(15, 23, 42, 0.45); }
+        .dialog-close {
+            font: inherit;
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 1.2rem;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 6px;
+        }
+        .dialog-close:hover { background: var(--accent-soft); color: var(--text-main); }
+    </style>
+</head>
+<body>
+    <div class="page-shell">
+        <div class="top-bar">
+            <h1>📶 Wi-Fi Control</h1>
+            <div class="top-bar-right">
+                <select id="apSelect" aria-label="Access point"></select>
+                <a href="/" class="back-btn">🏠 Home</a>
+                <button class="theme-toggle" id="themeToggle" title="Toggle dark mode">🌙</button>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-title">
+                <span>Current settings</span>
+                <span class="title-actions">
+                    <button class="btn secondary" id="refreshBtn">Read from AP</button>
+                    <button class="btn" id="openChangeBtn">✏️ Change settings</button>
+                </span>
+            </div>
+            <div id="current" class="current"><div class="muted">Click "Read from AP" to connect over SSH.</div></div>
+            <details>
+                <summary>Raw output</summary>
+                <pre id="rawOut">—</pre>
+            </details>
+            <div id="statusMsg" class="msg"></div>
+        </div>
+
+        <dialog id="changeDialog" class="panel">
+            <div class="panel-title">
+                <span>Change settings <span class="muted">Leave a field blank to keep it as is</span></span>
+                <button class="dialog-close" id="closeChangeBtn" aria-label="Close">✕</button>
+            </div>
+            <div class="grid">
+                <label>Network (WLAN)
+                    <select id="wlan"></select>
+                </label>
+                <label>SSID (network name)
+                    <input id="ssid" maxlength="32" placeholder="unchanged">
+                </label>
+                <label>Wi-Fi password
+                    <input id="passphrase" type="password" maxlength="63" placeholder="unchanged" autocomplete="new-password">
+                </label>
+                <label>Broadcast SSID on
+                    <select id="band">
+                        <option value="">unchanged</option>
+                        <option value="all">Both 2.4 GHz and 5 GHz</option>
+                        <option value="2.4GHz">2.4 GHz only</option>
+                        <option value="5GHz">5 GHz only</option>
+                    </select>
+                </label>
+            </div>
+            <div class="grid" id="radioCards" style="margin-top:14px"></div>
+            <div class="radio-card" style="margin-top:14px">
+                <h3>SNMP</h3>
+                <div class="grid">
+                    <label>SNMP agent
+                        <select id="snmpEnabled">
+                            <option value="">unchanged</option>
+                            <option value="on">On</option>
+                            <option value="off">Off</option>
+                        </select>
+                    </label>
+                    <label>Read community
+                        <input id="snmpRead" type="password" maxlength="64" placeholder="unchanged" autocomplete="off">
+                    </label>
+                    <label>Write community
+                        <input id="snmpWrite" type="password" maxlength="64" placeholder="unchanged" autocomplete="off">
+                    </label>
+                </div>
+            </div>
+            <div class="actions">
+                <button class="btn secondary" id="previewBtn">Preview commands</button>
+                <button class="btn" id="applyBtn">Apply to AP</button>
+            </div>
+            <pre id="changeOut" class="hidden"></pre>
+            <div id="changeMsg" class="msg"></div>
+        </dialog>
+
+        <div class="panel">
+            <div class="panel-title">CLI console <span class="muted">One command per line, run in a single SSH session</span></div>
+            <textarea id="consoleIn" placeholder="show config&#10;show wireless"></textarea>
+            <div class="actions">
+                <button class="btn secondary" id="consoleBtn">Run</button>
+            </div>
+            <pre id="consoleOut" class="hidden"></pre>
+        </div>
+    </div>
+
+    <script>
+        const themeToggle = document.getElementById('themeToggle');
+        if ((localStorage.getItem('theme') || 'light') === 'dark') {
+            document.documentElement.setAttribute('data-theme', 'dark');
+            themeToggle.textContent = '☀️';
+        }
+        themeToggle.addEventListener('click', () => {
+            const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+            document.documentElement.setAttribute('data-theme', isDark ? 'light' : 'dark');
+            localStorage.setItem('theme', isDark ? 'light' : 'dark');
+            themeToggle.textContent = isDark ? '🌙' : '☀️';
+        });
+    </script>
+    <script>
+        // Behind the hub everything lives under /wifi; the hub's own /static/ belongs to the weather app.
+        window.BASE_PATH = window.location.pathname.startsWith('/wifi') ? '/wifi' : '';
+        const script = document.createElement('script');
+        script.src = window.BASE_PATH + '/static/app.js';
+        document.body.appendChild(script);
+    </script>
+</body>
+</html>
