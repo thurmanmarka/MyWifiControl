@@ -176,6 +176,7 @@ function secretCard(title, s, path) {
             v.textContent = data.secret;
             btn.textContent = 'Hide';
             shown = true;
+            loadHistory(); // viewing a secret is logged
         } catch (e) {
             note.textContent = e.message;
             note.classList.add('warn');
@@ -298,6 +299,7 @@ async function previewOrApply(apply) {
         setMsg($('changeMsg'), e.message, false);
     } finally {
         busy(btns, false);
+        if (apply) loadHistory();
     }
 }
 
@@ -321,6 +323,65 @@ async function runConsole() {
         out.textContent = e.message;
     } finally {
         busy([btn], false);
+        loadHistory();
+    }
+}
+
+const HISTORY_ACTIONS = { apply: 'Applied settings', console: 'Ran console commands', view_secret: 'Viewed a saved secret' };
+
+// loadHistory shows the change log for the selected AP. The panel stays hidden
+// when the app runs without a database.
+async function loadHistory() {
+    const ap = currentAP();
+    if (!ap) return;
+    let data;
+    try {
+        data = await api(`/api/aps/${encodeURIComponent(ap.id)}/history`);
+    } catch (e) {
+        $('historyPanel').classList.remove('hidden');
+        $('historyList').replaceChildren(Object.assign(document.createElement('div'), { className: 'muted', textContent: e.message }));
+        return;
+    }
+    $('historyPanel').classList.toggle('hidden', !data.enabled);
+    const list = $('historyList');
+    list.replaceChildren();
+    if (!data.entries.length) {
+        list.appendChild(Object.assign(document.createElement('div'), { className: 'muted', textContent: 'Nothing recorded yet.' }));
+        return;
+    }
+    for (const e of data.entries) {
+        const item = document.createElement('div');
+        item.className = 'history-item';
+
+        const head = document.createElement('div');
+        head.className = 'history-head';
+        const when = Object.assign(document.createElement('span'), {
+            className: 'history-when',
+            textContent: new Date(e.at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }),
+        });
+        const what = Object.assign(document.createElement('span'), {
+            className: 'history-what', textContent: HISTORY_ACTIONS[e.action] || e.action,
+        });
+        const who = Object.assign(document.createElement('span'), { className: 'muted', textContent: `by ${e.user}` });
+        const result = Object.assign(document.createElement('span'), {
+            className: 'history-result ' + (e.ok ? 'ok' : 'bad'),
+            textContent: e.ok ? '✓ OK' : '✕ Failed',
+        });
+        head.append(when, what, who, result);
+        item.appendChild(head);
+
+        if (e.detail) item.appendChild(Object.assign(document.createElement('div'), { className: 'history-detail', textContent: e.detail }));
+        if (e.error) item.appendChild(Object.assign(document.createElement('div'), { className: 'history-error', textContent: e.error }));
+        if (e.commands && e.commands.length) {
+            const details = document.createElement('details');
+            const summary = document.createElement('summary');
+            summary.textContent = `${e.commands.length} command${e.commands.length > 1 ? 's' : ''}`;
+            const pre = document.createElement('pre');
+            pre.textContent = e.commands.join('\n');
+            details.append(summary, pre);
+            item.appendChild(details);
+        }
+        list.appendChild(item);
     }
 }
 
@@ -336,10 +397,12 @@ async function init() {
         }
         buildRadioCards();
         buildWlanSelect();
+        loadHistory();
         sel.addEventListener('change', () => {
             buildRadioCards();
             $('wlan').value = '';
             buildWlanSelect();
+            loadHistory();
         });
     } catch (e) {
         setMsg($('statusMsg'), e.message, false);

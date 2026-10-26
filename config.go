@@ -22,6 +22,18 @@ type Config struct {
 	} `yaml:"server"`
 	AccessPoints []AccessPoint      `yaml:"access_points"`
 	Profiles     map[string]Profile `yaml:"profiles"`
+	Database     DatabaseConfig     `yaml:"database"`
+}
+
+// DatabaseConfig is where the change log is kept. When disabled, changes are
+// only written to the service log (journald).
+type DatabaseConfig struct {
+	Enabled  bool   `yaml:"enabled"`
+	Host     string `yaml:"host"`
+	Port     int    `yaml:"port"`
+	Name     string `yaml:"name"`
+	User     string `yaml:"user"`
+	Password string `yaml:"password"`
 }
 
 type AccessPoint struct {
@@ -68,6 +80,18 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if cfg.Server.SecretKeyFile == "" {
 		cfg.Server.SecretKeyFile = "secret.key"
+	}
+	if cfg.Database.Host == "" {
+		cfg.Database.Host = "127.0.0.1"
+	}
+	if cfg.Database.Port == 0 {
+		cfg.Database.Port = 3306
+	}
+	if cfg.Database.Name == "" {
+		cfg.Database.Name = "wifi_db"
+	}
+	if cfg.Database.User == "" {
+		cfg.Database.User = "wifi_app"
 	}
 
 	// Built-in profiles can be overridden by name from config.yaml.

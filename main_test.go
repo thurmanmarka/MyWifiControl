@@ -32,6 +32,7 @@ func TestOnlyAdminsAllowed(t *testing.T) {
 		{"GET", "/api/aps/t/status"}, {"POST", "/api/aps/t/preview"},
 		{"POST", "/api/aps/t/apply"}, {"POST", "/api/aps/t/console"},
 		{"GET", "/api/aps/t/wlans/1/password"}, {"GET", "/api/aps/t/snmp/read"},
+		{"GET", "/api/aps/t/history"},
 	}
 	for _, rt := range routes {
 		for role, want := range map[string]int{"user": 403, "guest": 403, "": 403, "none": 401} {
@@ -535,5 +536,64 @@ func TestApplySavesSNMP(t *testing.T) {
 	do("POST", "/api/aps/t/apply", `{"snmp":{"enabled":false}}`)
 	if s := snmp(); s["enabled"] != false || s["read_community"].(map[string]any)["saved"] != true {
 		t.Errorf("after disable: %v", s)
+	}
+}
+
+func TestMaskConsoleSecrets(t *testing.T) {
+	got := MaskConsoleSecrets([]string{
+		`wireless wlan 1 passphrase "my secret pw"`,
+		"snmp-server write-community thurmanrw",
+		"snmp-server read-community public",
+		"show config",
+		"wireless wlan 1 ssid \"Home\"",
+	})
+	want := []string{
+		"wireless wlan 1 passphrase ********",
+		"snmp-server write-community ********",
+		"snmp-server read-community ********",
+		"show config",
+		"wireless wlan 1 ssid \"Home\"",
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("command %d: got %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestChangeSummary(t *testing.T) {
+	on := true
+	req := ChangeRequest{SSID: "Home", Passphrase: "supersecret", Band: "all",
+		Radios: []RadioChange{{Band: "5", Channel: "36", Width: "80"}, {Band: "2.4"}},
+		SNMP:   &SNMPChange{Enabled: &on, WriteCommunity: "rw-secret"}}
+	got := req.Summary()
+	want := `SSID → "Home"; Wi-Fi password changed; broadcast on all; 5 GHz channel 36, 80 MHz; SNMP on; SNMP write community changed`
+	if got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+	for _, secret := range req.Secrets() {
+		if secret != "" && strings.Contains(got, secret) {
+			t.Errorf("summary leaks secret %q", secret)
+		}
+	}
+}
+
+func TestHistoryWithoutDatabase(t *testing.T) {
+	cfg = &Config{AccessPoints: []AccessPoint{*testAP()}}
+	changes = nil
+	req := httptest.NewRequest("GET", "/api/aps/t/history", nil)
+	req.Header.Set("X-Hub-Authenticated", "true")
+	req.Header.Set("X-Hub-Role", "admin")
+	rec := httptest.NewRecorder()
+	newMux().ServeHTTP(rec, req)
+	var body struct {
+		Enabled bool          `json:"enabled"`
+		Entries []ChangeEntry `json:"entries"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || rec.Code != 200 {
+		t.Fatalf("got %d %s", rec.Code, rec.Body.String())
+	}
+	if body.Enabled || body.Entries == nil || len(body.Entries) != 0 {
+		t.Errorf("want enabled=false and an empty list, got %+v", body)
 	}
 }

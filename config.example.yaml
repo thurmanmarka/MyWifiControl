@@ -15,6 +15,16 @@ server:
   secrets_file: secrets.json
   secret_key_file: secret.key
 
+# MariaDB change log: every apply, console session and saved-secret view, shown
+# as "Change history" on the page. Without it, changes are only in the journal.
+database:
+  enabled: true
+  host: 127.0.0.1
+  port: 3306
+  name: wifi_db
+  user: wifi_app
+  password: "change-me"
+
 access_points:
   - id: house
     name: House AP

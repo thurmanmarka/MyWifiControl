@@ -1,7 +1,7 @@
 [Unit]
 Description=MyWifiControl - Cambium AP settings over SSH
-After=network-online.target
-Wants=network-online.target
+After=network-online.target mariadb.service
+Wants=network-online.target mariadb.service
 
 [Service]
 Type=simple
@@ -20,7 +20,7 @@ ProtectHome=read-only
 # secrets.json / secret.key (saved Wi-Fi passwords) live here
 ReadWritePaths=/home/myhomeservices/wifi-control
 
-# Logging (audit trail of every change lives here)
+# Logging (also an audit trail; with a database, changes go to change_log too)
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=wifi-control

@@ -236,6 +236,44 @@ func (c *ChangeRequest) Secrets() []string {
 	return s
 }
 
+// Summary describes the request in words for the change log, without secrets.
+func (c *ChangeRequest) Summary() string {
+	var parts []string
+	if c.SSID != "" {
+		parts = append(parts, fmt.Sprintf("SSID → %q", c.SSID))
+	}
+	if c.Passphrase != "" {
+		parts = append(parts, "Wi-Fi password changed")
+	}
+	if c.Band != "" {
+		parts = append(parts, "broadcast on "+c.Band)
+	}
+	for _, r := range c.Radios {
+		var radio []string
+		if r.Channel != "" {
+			radio = append(radio, "channel "+r.Channel)
+		}
+		if r.Width != "" {
+			radio = append(radio, r.Width+" MHz")
+		}
+		if len(radio) > 0 {
+			parts = append(parts, r.Band+" GHz "+strings.Join(radio, ", "))
+		}
+	}
+	if s := c.SNMP; !s.empty() {
+		if s.Enabled != nil {
+			parts = append(parts, map[bool]string{true: "SNMP on", false: "SNMP off"}[*s.Enabled])
+		}
+		if s.ReadCommunity != "" {
+			parts = append(parts, "SNMP read community changed")
+		}
+		if s.WriteCommunity != "" {
+			parts = append(parts, "SNMP write community changed")
+		}
+	}
+	return strings.Join(parts, "; ")
+}
+
 func (c *ChangeRequest) hasRadioChanges() bool {
 	for _, r := range c.Radios {
 		if r.Channel != "" || r.Width != "" {

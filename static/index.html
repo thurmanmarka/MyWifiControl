@@ -135,6 +135,19 @@
         .msg.bad { color: var(--bad); }
         .hidden { display: none !important; }
 
+        .history-item { border-top: 1px solid var(--panel-border); padding: 10px 0; }
+        .history-item:first-child { border-top: none; padding-top: 0; }
+        .history-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+        .history-when { color: var(--text-muted); font-size: 0.85rem; min-width: 9.5em; font-variant-numeric: tabular-nums; }
+        .history-what { font-weight: 600; }
+        .history-result { font-size: 0.85rem; font-weight: 600; }
+        .history-result.ok { color: var(--ok); }
+        .history-result.bad { color: var(--bad); }
+        .history-detail { margin-top: 4px; }
+        .history-error { margin-top: 4px; color: var(--bad); font-size: 0.9rem; }
+        .history-item details summary { margin-top: 6px; font-size: 0.85rem; }
+        .history-item pre { margin-top: 6px; }
+
         .title-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
         /* "Change settings" pops out over the dashboard. */
@@ -245,6 +258,11 @@
                 <button class="btn secondary" id="consoleBtn">Run</button>
             </div>
             <pre id="consoleOut" class="hidden"></pre>
+        </div>
+
+        <div class="panel hidden" id="historyPanel">
+            <div class="panel-title">Change history <span class="muted">The last 50 things done to this AP through Wi-Fi Control</span></div>
+            <div id="historyList"></div>
         </div>
     </div>
 

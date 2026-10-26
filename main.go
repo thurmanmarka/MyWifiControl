@@ -32,6 +32,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to open password store: %v", err)
 	}
+	if cfg.Database.Enabled {
+		changes, err = openChangeLog(cfg.Database)
+		if err != nil {
+			log.Fatalf("Failed to open change log database: %v", err)
+		}
+		log.Printf("🗄️  Change log in MariaDB database %s", cfg.Database.Name)
+	}
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Bind, cfg.Server.Port)
 	log.Printf("📶 MyWifiControl starting on http://%s (%d access point(s))", addr, len(cfg.AccessPoints))
@@ -61,7 +68,27 @@ func newMux() *http.ServeMux {
 	mux.HandleFunc("POST /api/aps/{id}/console", admin(handleConsole))
 	mux.HandleFunc("GET /api/aps/{id}/wlans/{wlan}/password", admin(handleRevealPassword))
 	mux.HandleFunc("GET /api/aps/{id}/snmp/{kind}", admin(handleRevealCommunity))
+	mux.HandleFunc("GET /api/aps/{id}/history", admin(handleHistory))
 	return mux
+}
+
+// handleHistory returns the AP's recent changes from the change log.
+func handleHistory(w http.ResponseWriter, r *http.Request) {
+	ap, _, ok := findAP(w, r)
+	if !ok {
+		return
+	}
+	if changes == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"enabled": false, "entries": []ChangeEntry{}})
+		return
+	}
+	entries, err := changes.Recent(ap.ID, 50)
+	if err != nil {
+		log.Printf("Change log query failed: %v", err)
+		writeError(w, http.StatusInternalServerError, "could not read the change log")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"enabled": true, "entries": entries})
 }
 
 type ctxKey string
@@ -221,7 +248,7 @@ func handleRevealPassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad WLAN index")
 		return
 	}
-	revealSecret(w, r, wlanKey(ap.ID, wlan), fmt.Sprintf("password for %s WLAN %d", ap.ID, wlan))
+	revealSecret(w, r, ap.ID, wlanKey(ap.ID, wlan), fmt.Sprintf("password for %s WLAN %d", ap.ID, wlan))
 }
 
 func handleRevealCommunity(w http.ResponseWriter, r *http.Request) {
@@ -234,10 +261,10 @@ func handleRevealCommunity(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "kind must be read or write")
 		return
 	}
-	revealSecret(w, r, snmpKey(ap.ID, kind), fmt.Sprintf("SNMP %s community for %s", kind, ap.ID))
+	revealSecret(w, r, ap.ID, snmpKey(ap.ID, kind), fmt.Sprintf("SNMP %s community for %s", kind, ap.ID))
 }
 
-func revealSecret(w http.ResponseWriter, r *http.Request, key, what string) {
+func revealSecret(w http.ResponseWriter, r *http.Request, apID, key, what string) {
 	saved, secret, err := secrets.Reveal(key)
 	if errors.Is(err, os.ErrNotExist) {
 		writeError(w, http.StatusNotFound, "nothing saved yet; set it through Wi-Fi Control first")
@@ -249,6 +276,7 @@ func revealSecret(w http.ResponseWriter, r *http.Request, key, what string) {
 	}
 	user := r.Context().Value(ctxKey("user")).(string)
 	log.Printf("🔑 %s viewed the saved %s", user, what)
+	changes.Record(ChangeEntry{User: user, APID: apID, Action: "view_secret", Detail: "Viewed the saved " + what, OK: true})
 
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -299,7 +327,9 @@ func handleApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user := r.Context().Value(ctxKey("user")).(string)
-	log.Printf("✏️  %s applying to %s: %q", user, ap.ID, MaskSecrets(cmds, req.Secrets()...))
+	maskedCmds := MaskSecrets(cmds, req.Secrets()...)
+	log.Printf("✏️  %s applying to %s: %q", user, ap.ID, maskedCmds)
+	entry := ChangeEntry{User: user, APID: ap.ID, Action: "apply", Commands: maskedCmds}
 
 	// Don't stop when the browser disconnects: changing the Wi-Fi you're
 	// browsing over drops you mid-request, and stopping between "apply" and
@@ -312,6 +342,8 @@ func handleApply(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		log.Printf("❌ apply to %s failed: %v", ap.ID, err)
+		entry.Error = err.Error()
+		changes.Record(entry)
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "results": results})
 		return
 	}
@@ -342,6 +374,12 @@ func handleApply(w http.ResponseWriter, r *http.Request) {
 	if len(failed) > 0 {
 		resp["warning"] = "Applied, but could not save: " + strings.Join(failed, ", ")
 	}
+	entry.OK = true
+	entry.Detail = req.Summary()
+	if len(failed) > 0 {
+		entry.Error = resp["warning"].(string)
+	}
+	changes.Record(entry)
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -404,7 +442,8 @@ func handleConsole(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := r.Context().Value(ctxKey("user")).(string)
-	log.Printf("⌨️  %s console on %s: %q", user, ap.ID, cmds)
+	maskedCmds := MaskConsoleSecrets(cmds)
+	log.Printf("⌨️  %s console on %s: %q", user, ap.ID, maskedCmds)
 
 	// Console output is shown as-is; don't stop on error lines here.
 	p.ErrorRegex = ""
@@ -412,9 +451,12 @@ func handleConsole(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	results, err := RunCommands(ctx, ap, p, cmds)
 	resp := map[string]any{"results": results}
+	entry := ChangeEntry{User: user, APID: ap.ID, Action: "console", Commands: maskedCmds, OK: err == nil}
 	if err != nil {
 		resp["error"] = err.Error()
+		entry.Error = err.Error()
 	}
+	changes.Record(entry)
 	writeJSON(w, http.StatusOK, resp)
 }
 

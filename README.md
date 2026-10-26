@@ -55,6 +55,28 @@ come out different every single time she shows them, even when nothing changed.
 Back up `secrets.json` **and** `secret.key` together. Lose the key and the diary
 is unreadable.
 
+## She keeps receipts 🧾
+
+Give her a MariaDB database and every apply, console session and **🔑 Show**
+is written to a `change_log` table, and the page grows a **Change history**
+panel: who, when, what changed in plain words (`SSID → "Home"; 5 GHz channel
+36, 80 MHz`), whether it worked, and the commands she was sent.
+
+- Secrets never make it in. Applied commands are masked the same way as the
+  preview, and anything after `passphrase`, `password`, `community` and friends
+  is starred out of console commands too.
+- Without a database she still logs everything to the journal, she just
+  doesn't show it on the page.
+
+```yaml
+database:
+  enabled: true
+  password: "..."   # host 127.0.0.1, port 3306, name wifi_db, user wifi_app by default
+```
+
+The nightly MariaDB backup picks up `wifi_db` on its own. `secrets.json` and
+`secret.key` are files, not database rows, so back those up separately.
+
 ## Getting her set up (Raspberry Pi)
 
 ```bash
