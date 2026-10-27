@@ -18,7 +18,7 @@ type ChangeEntry struct {
 	At       time.Time `json:"at"`
 	User     string    `json:"user"`
 	APID     string    `json:"ap"`
-	Action   string    `json:"action"` // apply, console, view_secret
+	Action   string    `json:"action"` // apply, console, view_secret, disconnect
 	Detail   string    `json:"detail,omitempty"`
 	Commands []string  `json:"commands,omitempty"`
 	OK       bool      `json:"ok"`

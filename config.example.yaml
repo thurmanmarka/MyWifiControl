@@ -44,6 +44,10 @@ access_points:
       "2.4": 1
       "5": 2
     timeout_seconds: 10
+    # SNMP read community for the live Clients panel. Leave it out to use the
+    # read community Wi-Fi Control saved when it last set one.
+    # snmp_community: "..."
+    # snmp_port: 161
 
 # Optional: override or add CLI profiles. Every command is a Go text/template line;
 # lines that render empty are skipped. Fields: .WLAN .SSID .Passphrase .Band

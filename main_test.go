@@ -32,7 +32,8 @@ func TestOnlyAdminsAllowed(t *testing.T) {
 		{"GET", "/api/aps/t/status"}, {"POST", "/api/aps/t/preview"},
 		{"POST", "/api/aps/t/apply"}, {"POST", "/api/aps/t/console"},
 		{"GET", "/api/aps/t/wlans/1/password"}, {"GET", "/api/aps/t/snmp/read"},
-		{"GET", "/api/aps/t/history"},
+		{"GET", "/api/aps/t/history"}, {"GET", "/api/aps/t/live"},
+		{"POST", "/api/aps/t/clients/aa:bb:cc:dd:ee:ff/disconnect"},
 	}
 	for _, rt := range routes {
 		for role, want := range map[string]int{"user": 403, "guest": 403, "": 403, "none": 401} {
@@ -595,5 +596,40 @@ func TestHistoryWithoutDatabase(t *testing.T) {
 	}
 	if body.Enabled || body.Entries == nil || len(body.Entries) != 0 {
 		t.Errorf("want enabled=false and an empty list, got %+v", body)
+	}
+}
+
+func TestNormalizeMAC(t *testing.T) {
+	for in, want := range map[string]string{
+		"AA-BB-CC-DD-EE-0F":   "aa:bb:cc:dd:ee:0f",
+		"aa:bb:cc:dd:ee:0f":   "aa:bb:cc:dd:ee:0f",
+		" 30-CB-C7-2D-FE-72 ": "30:cb:c7:2d:fe:72",
+	} {
+		if got, ok := normalizeMAC(in); !ok || got != want {
+			t.Errorf("normalizeMAC(%q) = %q, %v; want %q", in, got, ok, want)
+		}
+	}
+	for _, bad := range []string{"", "aa:bb:cc:dd:ee", "aa:bb:cc:dd:ee:ff:00", "aa:bb:cc:dd:ee:gg", "aa:bb:cc:dd:ee:ff; reload"} {
+		if _, ok := normalizeMAC(bad); ok {
+			t.Errorf("normalizeMAC(%q) accepted a bad MAC", bad)
+		}
+	}
+}
+
+func TestDisconnectCommand(t *testing.T) {
+	p := builtinProfiles()["cnpilot"]
+	for _, tc := range []struct {
+		radio, wlan int
+		want        string
+	}{
+		{1, 1, "service radio iwpriv wlan0 kickmac aa:bb:cc:dd:ee:ff"},
+		{1, 2, "service radio iwpriv wlan1 kickmac aa:bb:cc:dd:ee:ff"},
+		{2, 1, "service radio iwpriv wlan16 kickmac aa:bb:cc:dd:ee:ff"},
+		{2, 2, "service radio iwpriv wlan17 kickmac aa:bb:cc:dd:ee:ff"},
+	} {
+		cmds, err := renderLines(p.Disconnect, templateData{Radio: tc.radio, WLAN: tc.wlan, MAC: "aa:bb:cc:dd:ee:ff"})
+		if err != nil || len(cmds) != 1 || cmds[0] != tc.want {
+			t.Errorf("radio %d WLAN %d: got %q, %v; want %q", tc.radio, tc.wlan, cmds, err, tc.want)
+		}
 	}
 }

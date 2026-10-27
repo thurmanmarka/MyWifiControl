@@ -23,6 +23,9 @@ type Profile struct {
 	Radio       []string `yaml:"radio"`
 	SNMP        []string `yaml:"snmp"`
 	Commit      []string `yaml:"commit"`
+	// Disconnect kicks one Wi-Fi client: .MAC (aa:bb:cc:dd:ee:ff), and the
+	// client's .Radio and .WLAN. Takes effect at once; no commit.
+	Disconnect []string `yaml:"disconnect"`
 }
 
 func builtinProfiles() map[string]Profile {
@@ -56,6 +59,10 @@ func builtinProfiles() map[string]Profile {
 				"{{if .WriteCommunity}}snmp-server write-community {{.WriteCommunity}}{{end}}",
 			},
 			Commit: []string{"apply", "save"},
+			// The CLI has no disconnect command, but "service radio" passes
+			// through to the Qualcomm driver tools, whose kickmac deauths a
+			// station on one WLAN interface.
+			Disconnect: []string{"service radio iwpriv wlan{{vap .Radio .WLAN}} kickmac {{.MAC}}"},
 		},
 	}
 }
@@ -105,6 +112,8 @@ type templateData struct {
 
 	SNMPOn, SNMPOff               bool
 	ReadCommunity, WriteCommunity string
+
+	MAC string // Wi-Fi client, for disconnect
 }
 
 var (
@@ -331,7 +340,7 @@ func BuildChangeCommands(p Profile, ap *AccessPoint, c *ChangeRequest) ([]string
 func renderLines(lines []string, data templateData) ([]string, error) {
 	var out []string
 	for _, line := range lines {
-		t, err := template.New("cmd").Funcs(template.FuncMap{"q": cliQuote}).Parse(line)
+		t, err := template.New("cmd").Funcs(template.FuncMap{"q": cliQuote, "vap": vapIndex}).Parse(line)
 		if err != nil {
 			return nil, fmt.Errorf("bad template %q: %w", line, err)
 		}

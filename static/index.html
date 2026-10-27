@@ -149,6 +149,27 @@
         .history-item pre { margin-top: 6px; }
 
         .title-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+        label.inline { flex-direction: row; align-items: center; gap: 8px; font-weight: 400; }
+        label.inline select { width: auto; padding: 4px 8px; }
+
+        /* Live clients */
+        .live-radios { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-bottom: 14px; }
+        .live-radios .stat .v { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+        .live-radios .meta { font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; }
+        .table-wrap { overflow-x: auto; }
+        table.clients { width: 100%; border-collapse: collapse; font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+        table.clients th { text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); padding: 6px 8px; border-bottom: 1px solid var(--panel-border); white-space: nowrap; }
+        table.clients td { padding: 8px; border-bottom: 1px solid var(--panel-border); vertical-align: middle; white-space: nowrap; }
+        table.clients tr:last-child td { border-bottom: none; }
+        table.clients .sub { font-size: 0.78rem; color: var(--text-muted); }
+        table.clients .weak { color: var(--bad); font-weight: 600; }
+        table.clients .btn { padding: 4px 10px; font-size: 0.8rem; }
+        .metric { display: flex; align-items: center; gap: 10px; }
+        .metric .num { min-width: 4.5em; }
+        svg.spark { display: block; width: 110px; height: 26px; overflow: visible; }
+        svg.spark path { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
+        svg.spark path.weak { stroke: var(--bad); }
+        .live-help { margin-top: 10px; font-size: 0.8rem; }
 
         /* "Change settings" pops out over the dashboard. */
         dialog#changeDialog {
@@ -198,6 +219,40 @@
                 <pre id="rawOut">—</pre>
             </details>
             <div id="statusMsg" class="msg"></div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-title">
+                <span>Clients <span class="muted" id="liveNote"></span></span>
+                <span class="title-actions">
+                    <label class="inline">Refresh
+                        <select id="liveRate">
+                            <option value="0">Paused</option>
+                            <option value="2">Every 2 s</option>
+                            <option value="3">Every 3 s</option>
+                            <option value="5">Every 5 s</option>
+                            <option value="10">Every 10 s</option>
+                        </select>
+                    </label>
+                </span>
+            </div>
+            <div id="liveRadios" class="live-radios"></div>
+            <div class="table-wrap">
+                <table class="clients">
+                    <thead>
+                        <tr>
+                            <th>Client</th><th>Network</th><th>Signal (SNR)</th>
+                            <th>Throughput</th><th>Link rate</th><th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="liveClients"></tbody>
+                </table>
+            </div>
+            <div class="muted live-help">
+                Read over SNMP. Signal and throughput lines show the last 5 minutes this page has been open.
+                Disconnect is a one-off kick, not a block: most devices reconnect within seconds.
+            </div>
+            <div id="liveMsg" class="msg"></div>
         </div>
 
         <dialog id="changeDialog" class="panel">

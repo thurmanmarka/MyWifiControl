@@ -53,6 +53,10 @@ type AccessPoint struct {
 	// Radios maps a band ("2.4", "5") to the radio index on the AP.
 	Radios         map[string]int `yaml:"radios"`
 	TimeoutSeconds int            `yaml:"timeout_seconds"`
+	// SNMP read community for the live client view. Empty uses the read
+	// community Wi-Fi Control saved when it last set one.
+	SNMPCommunity string `yaml:"snmp_community"`
+	SNMPPort      int    `yaml:"snmp_port"`
 }
 
 func (ap *AccessPoint) Timeout() time.Duration {
@@ -131,6 +135,9 @@ func LoadConfig(path string) (*Config, error) {
 		}
 		if ap.TimeoutSeconds == 0 {
 			ap.TimeoutSeconds = 10
+		}
+		if ap.SNMPPort == 0 {
+			ap.SNMPPort = 161
 		}
 	}
 	return &cfg, nil

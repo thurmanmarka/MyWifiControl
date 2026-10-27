@@ -69,6 +69,8 @@ func newMux() *http.ServeMux {
 	mux.HandleFunc("GET /api/aps/{id}/wlans/{wlan}/password", admin(handleRevealPassword))
 	mux.HandleFunc("GET /api/aps/{id}/snmp/{kind}", admin(handleRevealCommunity))
 	mux.HandleFunc("GET /api/aps/{id}/history", admin(handleHistory))
+	mux.HandleFunc("GET /api/aps/{id}/live", admin(handleLive))
+	mux.HandleFunc("POST /api/aps/{id}/clients/{mac}/disconnect", admin(handleDisconnect))
 	return mux
 }
 

@@ -15,6 +15,7 @@ MyHomeServicesHub.
 - **Preview**: foreplay. See every command before anything actually goes in.
 - **Apply**: the main event.
 - **CLI console**: for admins who like to talk dirty to her in raw CLI. Also great for checking your firmware's exact syntax.
+- **Clients**: who's over right now. Signal, throughput and link rate every few seconds, and a **Disconnect** button for anyone overstaying their welcome.
 - **Every change is logged with the hub username.** She kisses and tells. (`journalctl -u wifi-control`)
 
 ## Consent 🔒
@@ -76,6 +77,31 @@ database:
 
 The nightly MariaDB backup picks up `wifi_db` on its own. `secrets.json` and
 `secret.key` are files, not database rows, so back those up separately.
+
+## Who's over? 📡
+
+The **Clients** panel reads her radio and client tables over **SNMP** (two bulk
+walks, under a second) every 2–10 seconds while the page is open and the tab is
+in front. SSH would hold her CLI lock for every refresh; SNMP doesn't.
+
+- Per radio: throughput, clients, channel, noise floor, airtime, transmit power.
+- Per client: SNR and throughput with a 5-minute sparkline, link rate, SSID, band,
+  Wi-Fi mode, IP, MAC, vendor. SNR under 20 dB shows red.
+- Throughput is the change in her byte counters between two reads. The history
+  lives in your browser only; My-SNMP-App keeps the long-term charts.
+- The read community comes from `snmp_community` on the access point in
+  `config.yaml`, or else the read community Wi-Fi Control saved when it last set one.
+
+**Disconnect** sends one 802.11 deauth over SSH. The CLI has no command for it,
+but `service radio` passes through to the Qualcomm driver tools:
+
+```
+service radio iwpriv wlan<(radio-1)*16 + (wlan-1)> kickmac aa:bb:cc:dd:ee:ff
+```
+
+The radio and WLAN come from her own client table, not the browser. It's a kick,
+not a block: most devices are back within seconds. Every disconnect goes in the
+journal and the change log with who did it.
 
 ## Getting her set up (Raspberry Pi)
 

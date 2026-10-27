@@ -327,7 +327,224 @@ async function runConsole() {
     }
 }
 
-const HISTORY_ACTIONS = { apply: 'Applied settings', console: 'Ran console commands', view_secret: 'Viewed a saved secret' };
+// ---- Live clients -----------------------------------------------------------
+// Polls the AP over SNMP while the page is visible. Throughput is the change in
+// a byte counter between two polls; each client and radio keeps a few minutes
+// of samples for its sparklines.
+
+const LIVE_KEEP_MS = 5 * 60e3;
+const WEAK_SNR_DB = 20; // below this a client's link is marginal
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+let liveTimer = null;
+let liveBusy = false;
+let livePrev = null; // last snapshot, for rates
+let liveHist = new Map(); // mac or "radio-N" -> [{t, snr, mbps}]
+
+function loadPref(key, fallback) {
+    try { return localStorage.getItem(key) || fallback; } catch (_) { return fallback; }
+}
+function savePref(key, value) {
+    try { localStorage.setItem(key, value); } catch (_) { /* private mode */ }
+}
+
+function scheduleLive(delay) {
+    clearTimeout(liveTimer);
+    const every = Number($('liveRate').value) * 1000;
+    if (!every || document.hidden) return;
+    liveTimer = setTimeout(pollLive, delay === undefined ? every : delay);
+}
+
+function resetLive() {
+    livePrev = null;
+    liveHist = new Map();
+    $('liveRadios').replaceChildren();
+    $('liveClients').replaceChildren();
+    $('liveNote').textContent = '';
+}
+
+async function pollLive() {
+    const ap = currentAP();
+    if (!ap || liveBusy) return;
+    liveBusy = true;
+    try {
+        const st = await api(`/api/aps/${encodeURIComponent(ap.id)}/live`);
+        if (ap === currentAP()) {
+            renderLive(ap, st);
+            if ($('liveMsg').dataset.kind === 'poll') setMsg($('liveMsg'), '');
+        }
+    } catch (e) {
+        setMsg($('liveMsg'), e.message, false);
+        $('liveMsg').dataset.kind = 'poll';
+    } finally {
+        liveBusy = false;
+        scheduleLive();
+    }
+}
+
+// Mbps between two readings of a byte counter; null when there's no earlier
+// reading or the counter went backwards (client reconnected, AP rebooted).
+function mbps(prev, cur, seconds) {
+    if (prev === undefined || cur < prev || seconds <= 0) return null;
+    return (cur - prev) * 8 / seconds / 1e6;
+}
+
+function remember(key, t, sample) {
+    const list = liveHist.get(key) || [];
+    list.push({ t, ...sample });
+    while (list.length && t - list[0].t > LIVE_KEEP_MS) list.shift();
+    liveHist.set(key, list);
+    return list;
+}
+
+function renderLive(ap, st) {
+    const t = Date.parse(st.at);
+    const secs = livePrev ? (t - livePrev.t) / 1000 : 0;
+    const prevClients = livePrev ? livePrev.clients : new Map();
+    const prevRadios = livePrev ? livePrev.radios : new Map();
+
+    const radios = $('liveRadios');
+    radios.replaceChildren();
+    for (const r of st.radios) {
+        const prev = prevRadios.get(r.index) || {};
+        const tx = mbps(prev.tx, r.tx_bytes, secs), rx = mbps(prev.rx, r.rx_bytes, secs);
+        const total = tx === null || rx === null ? null : tx + rx;
+        const hist = remember(`radio-${r.index}`, t, { mbps: total });
+
+        const card = statCard(`${r.band || `Radio ${r.index}`} · channel ${r.channel}, ${r.width_mhz} MHz`, '');
+        const v = card.querySelector('.v');
+        v.replaceChildren(
+            Object.assign(document.createElement('span'), { textContent: total === null ? '…' : `${fmtMbps(total)} Mbps` }),
+            sparkline(hist.map((h) => h.mbps), { min: 0 }),
+        );
+        card.appendChild(Object.assign(document.createElement('div'), {
+            className: 'meta',
+            textContent: `${r.clients} client${r.clients === 1 ? '' : 's'} · noise ${r.noise_dbm} dBm · airtime ${r.airtime_pct}% · ${r.tx_power_dbm} dBm tx`,
+        }));
+        radios.appendChild(card);
+    }
+
+    const body = $('liveClients');
+    body.replaceChildren();
+    const seen = new Set();
+    const clients = st.clients.slice().sort((a, b) => (a.name || a.ip || a.mac).localeCompare(b.name || b.ip || b.mac));
+    for (const c of clients) {
+        seen.add(c.mac);
+        const prev = prevClients.get(c.mac) || {};
+        const tx = mbps(prev.tx, c.tx_bytes, secs), rx = mbps(prev.rx, c.rx_bytes, secs);
+        const total = tx === null || rx === null ? null : tx + rx;
+        const hist = remember(c.mac, t, { snr: c.snr_db, mbps: total });
+        body.appendChild(clientRow(ap, c, total, hist));
+    }
+    if (!clients.length) {
+        const tr = document.createElement('tr');
+        const td = Object.assign(document.createElement('td'), { colSpan: 6, className: 'muted', textContent: 'No clients connected.' });
+        tr.appendChild(td);
+        body.appendChild(tr);
+    }
+    // A client that left starts a fresh history if it comes back
+    for (const key of liveHist.keys()) {
+        if (!key.startsWith('radio-') && !seen.has(key)) liveHist.delete(key);
+    }
+
+    livePrev = {
+        t,
+        clients: new Map(st.clients.map((c) => [c.mac, { tx: c.tx_bytes, rx: c.rx_bytes }])),
+        radios: new Map(st.radios.map((r) => [r.index, { tx: r.tx_bytes, rx: r.rx_bytes }])),
+    };
+    $('liveNote').textContent = `${st.clients.length} connected · updated ${new Date(t).toLocaleTimeString()}`;
+}
+
+function clientRow(ap, c, total, hist) {
+    const tr = document.createElement('tr');
+    const cell = (...kids) => {
+        const td = document.createElement('td');
+        td.append(...kids);
+        tr.appendChild(td);
+        return td;
+    };
+    const line = (text, cls) => Object.assign(document.createElement('div'), { textContent: text, className: cls || '' });
+    const metric = (num, spark, weak) => {
+        const d = document.createElement('div');
+        d.className = 'metric';
+        d.append(Object.assign(document.createElement('span'), { className: 'num' + (weak ? ' weak' : ''), textContent: num }), spark);
+        return d;
+    };
+
+    cell(line(c.name || c.mac), line([c.ip, c.name ? c.mac : '', c.vendor].filter(Boolean).join(' · '), 'sub'));
+    cell(line(c.ssid), line(`${c.band} · ${c.mode}`, 'sub'));
+    const weak = c.snr_db < WEAK_SNR_DB;
+    cell(metric(`${c.snr_db} dB`, sparkline(hist.map((h) => h.snr), { min: 0, weakBelow: WEAK_SNR_DB }), weak));
+    cell(metric(total === null ? '…' : `${fmtMbps(total)} Mbps`, sparkline(hist.map((h) => h.mbps), { min: 0 })));
+    cell(`${Math.round(c.rate_mbps)} Mbps`);
+
+    const btn = Object.assign(document.createElement('button'), { className: 'btn secondary', textContent: 'Disconnect' });
+    btn.addEventListener('click', () => disconnectClient(ap, c, btn));
+    cell(btn);
+    return tr;
+}
+
+function fmtMbps(v) {
+    return v < 10 ? v.toFixed(2) : v.toFixed(1);
+}
+
+// sparkline draws the last LIVE_KEEP_MS of samples, newest at the right. Nulls
+// (no rate yet) break the line. weakBelow colours the line when the latest
+// value is under it.
+function sparkline(values, { min, max, weakBelow } = {}) {
+    const W = 110, H = 26;
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('class', 'spark');
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svg.setAttribute('aria-hidden', 'true');
+    const nums = values.filter((v) => v !== null && v !== undefined);
+    if (nums.length < 2) return svg;
+
+    const lo = min !== undefined ? min : Math.min(...nums);
+    let hi = max !== undefined ? max : Math.max(...nums);
+    if (hi <= lo) hi = lo + 1;
+    const step = W / Math.max(values.length - 1, 1);
+    let d = '', pen = false;
+    values.forEach((v, i) => {
+        if (v === null || v === undefined) { pen = false; return; }
+        const x = i * step, y = H - 1 - (Math.min(v, hi) - lo) / (hi - lo) * (H - 2);
+        d += `${pen ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`;
+        pen = true;
+    });
+    const path = document.createElementNS(SVG_NS, 'path');
+    path.setAttribute('d', d);
+    if (weakBelow !== undefined && nums[nums.length - 1] < weakBelow) path.setAttribute('class', 'weak');
+    svg.appendChild(path);
+    return svg;
+}
+
+async function disconnectClient(ap, c, btn) {
+    const label = c.name || c.mac;
+    const ok = confirm(
+        `Disconnect ${label} from "${c.ssid}"?\n\n` +
+        'This is a one-off kick, not a block: most devices reconnect within a few seconds.'
+    );
+    if (!ok) return;
+    btn.disabled = true;
+    const msg = $('liveMsg');
+    msg.dataset.kind = 'action';
+    setMsg(msg, `Disconnecting ${label}…`);
+    try {
+        await api(`/api/aps/${encodeURIComponent(ap.id)}/clients/${encodeURIComponent(c.mac)}/disconnect`, { method: 'POST', body: '{}' });
+        setMsg(msg, `Disconnected ${label} at ${new Date().toLocaleTimeString()}.`, true);
+    } catch (e) {
+        setMsg(msg, `Could not disconnect ${label}: ${e.message}`, false);
+    } finally {
+        btn.disabled = false;
+        loadHistory();
+        scheduleLive(1000); // show it leaving (or coming back) soon
+    }
+}
+
+const HISTORY_ACTIONS = {
+    apply: 'Applied settings', console: 'Ran console commands', view_secret: 'Viewed a saved secret',
+    disconnect: 'Disconnected a client',
+};
 
 // loadHistory shows the change log for the selected AP. The panel stays hidden
 // when the app runs without a database.
@@ -398,11 +615,14 @@ async function init() {
         buildRadioCards();
         buildWlanSelect();
         loadHistory();
+        scheduleLive(0);
         sel.addEventListener('change', () => {
             buildRadioCards();
             $('wlan').value = '';
             buildWlanSelect();
             loadHistory();
+            resetLive();
+            scheduleLive(0);
         });
     } catch (e) {
         setMsg($('statusMsg'), e.message, false);
@@ -426,4 +646,20 @@ $('refreshBtn').addEventListener('click', readStatus);
 $('previewBtn').addEventListener('click', () => previewOrApply(false));
 $('applyBtn').addEventListener('click', () => previewOrApply(true));
 $('consoleBtn').addEventListener('click', runConsole);
+
+$('liveRate').value = loadPref('wifiLiveRate', '3');
+$('liveRate').addEventListener('change', () => {
+    savePref('wifiLiveRate', $('liveRate').value);
+    livePrev = null; // a paused gap shouldn't count as one slow sample
+    scheduleLive(0);
+});
+// Stop polling the AP while the tab is in the background
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        clearTimeout(liveTimer);
+    } else {
+        livePrev = null;
+        scheduleLive(0);
+    }
+});
 init();
